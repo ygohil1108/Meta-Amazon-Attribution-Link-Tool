@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Amazon App Link Builder</title>
+  <style>
+    :root {
+      --bg: #f6f7f8; --card: #ffffff; --fg: #0f1111; --muted: #5f6466; --line: #dfe3e5;
+      --accent: #ffd814; --accent-border: #fcd200; --ok: #067d62; --warn: #b4540a; --err: #c40000;
+      --code-bg: #f1f3f4;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1218; --card: #171d26; --fg: #eef0f2; --muted: #a3abb3; --line: #2b3440;
+        --ok: #4cc9a4; --warn: #f0a05a; --err: #ff6b6b; --code-bg: #0f141b;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--fg);
+      font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { font-size: 26px; margin: 0 0 6px; }
+    h2 { font-size: 16px; margin: 0 0 12px; }
+    .lede { color: var(--muted); margin: 0 0 24px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    .hint { color: var(--muted); font-size: 13px; font-weight: 400; }
+    textarea, input[type=text] {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--bg); color: var(--fg); font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    textarea { min-height: 84px; resize: vertical; }
+    .field { margin-bottom: 16px; }
+    button, .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 9px 16px; border-radius: 999px; border: 1px solid var(--accent-border);
+      background: var(--accent); color: #0f1111; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none;
+    }
+    .secondary { background: transparent; border-color: var(--line); color: var(--fg); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .output {
+      display: block; width: 100%; padding: 10px 12px; border-radius: 8px; background: var(--code-bg);
+      border: 1px solid var(--line); font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      word-break: break-all; margin-bottom: 10px;
+    }
+    .checks { list-style: none; padding: 0; margin: 0 0 4px; }
+    .checks li { padding: 3px 0 3px 24px; position: relative; }
+    .checks li::before { position: absolute; left: 0; font-weight: 700; }
+    .checks .ok::before { content: "✓"; color: var(--ok); }
+    .checks .warn::before { content: "!"; color: var(--warn); left: 5px; }
+    .error { color: var(--err); font-weight: 600; margin: 12px 0 0; }
+    .hidden { display: none; }
+    details { margin-top: 4px; }
+    summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+    details .output { margin-top: 10px; }
+    ol { padding-left: 20px; margin: 0; }
+    ol li { margin-bottom: 6px; }
+    code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+    .recent { list-style: none; margin: 0; padding: 0; }
+    .recent li { padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; word-break: break-all; }
+    .recent li:first-child { border-top: 0; }
+    .recent .when { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Amazon App Link Builder</h1>
+    <p class="lede">Turn an Amazon Attribution link into a link for Meta ads that opens the Amazon app instead of loading Amazon inside Facebook or Instagram.</p>
+
+    <form id="form" class="card" autocomplete="off">
+      <div class="field">
+        <label for="dest">Amazon Attribution link</label>
+        <textarea id="dest" placeholder="https://www.amazon.com/dp/B0XXXXXXXX?maas=maas_adg_...&ref_=aa_maas&tag=maas" spellcheck="false" required></textarea>
+      </div>
+      <div class="field">
+        <label for="slug">Short name <span class="hint">(optional, for a shorter link via links.json, e.g. <code>tol</code>)</span></label>
+        <input id="slug" type="text" placeholder="tol" pattern="[a-z0-9-]+" spellcheck="false">
+      </div>
+      <button type="submit">Create link</button>
+      <p id="error" class="error hidden" role="alert"></p>
+    </form>
+
+    <section id="result" class="card hidden" aria-live="polite">
+      <h2>Your link</h2>
+      <ul id="checks" class="checks"></ul>
+
+      <label for="out-link" style="margin-top:12px">Use this in your Meta ad <span class="hint">(works right away)</span></label>
+      <code id="out-link" class="output"></code>
+      <div class="row">
+        <button type="button" data-copy="out-link">Copy link</button>
+        <a id="test-link" class="btn secondary" target="_blank" rel="noopener">Open to test</a>
+      </div>
+
+      <div id="slug-block" class="hidden" style="margin-top:20px">
+        <label>Short version</label>
+        <p class="hint" style="margin:0 0 8px">Add this line to <code>links.json</code> in the repo and push. The short link works once GitHub Pages redeploys (about a minute).</p>
+        <code id="slug-json" class="output"></code>
+        <code id="slug-link" class="output"></code>
+        <div class="row">
+          <button type="button" class="secondary" data-copy="slug-json">Copy JSON line</button>
+          <button type="button" class="secondary" data-copy="slug-link">Copy short link</button>
+        </div>
+      </div>
+
+      <details>
+        <summary>What the link does on each device</summary>
+        <label style="margin-top:10px">iPhone opens <span class="hint">(iOS shows “Open in Amazon?” inside Facebook/Instagram)</span></label>
+        <code id="out-ios" class="output"></code>
+        <label>Android opens</label>
+        <code id="out-android" class="output"></code>
+        <label>Desktop, or if the app isn't installed</label>
+        <code id="out-web" class="output"></code>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>Before you put it in an ad</h2>
+      <ol>
+        <li>Send the link to yourself in an Instagram DM and tap it on an iPhone and an Android phone. It should open the product in the Amazon app (on iPhone, after you tap <strong>Open</strong>).</li>
+        <li>On a phone without the Amazon app, check the Amazon page loads with <code>maas=</code> still in the address bar.</li>
+        <li>After 24–48 hours, confirm Click-throughs are rising in Amazon Attribution.</li>
+        <li>Retest every month or two, and after big iOS, Facebook or Instagram updates.</li>
+      </ol>
+    </section>
+
+    <section id="recent-card" class="card hidden">
+      <h2>Recent links <span class="hint">(saved in this browser only)</span></h2>
+      <ul id="recent" class="recent"></ul>
+    </section>
+  </main>
+
+  <script src="assets/deeplink.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var L = window.AmazonLink;
+      var $ = function (id) { return document.getElementById(id); };
+      var RECENT_KEY = 'amazon-app-links:recent';
+
+      // The /go/ redirect page lives next to this page, wherever the site is hosted.
+      var goBase = new URL('go/', location.href).toString();
+
+      function setText(id, text) { $(id).textContent = text; }
+
+      function render(dest, slug) {
+        var url = L.parseAmazonUrl(dest);
+        var web = L.webUrl(url);
+        var link = goBase + '?l=' + L.encode(web);
+
+        var checks = [];
+        var asin = (url.pathname.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i) || [])[1];
+        checks.push(asin ? ['ok', 'Product ' + asin.toUpperCase() + ' on ' + url.hostname]
+                         : ['warn', 'No product ID (/dp/…) found. The link will still work, but check it goes where you expect.']);
+        checks.push(L.hasAttribution(url)
+          ? ['ok', 'Amazon Attribution tag found (maas=' + url.searchParams.get('maas').slice(0, 18) + '…)']
+          : ['warn', 'No maas= tag found, so Amazon Attribution won’t count these clicks. Paste the full Attribution link.']);
+
+        $('checks').innerHTML = '';
+        checks.forEach(function (c) {
+          var li = document.createElement('li');
+          li.className = c[0];
+          li.textContent = c[1];
+          $('checks').appendChild(li);
+        });
+
+        setText('out-link', link);
+        $('test-link').href = link;
+        setText('out-ios', L.iosAppUrl(url));
+        setText('out-android', L.androidIntentUrl(url));
+        setText('out-web', web);
+
+        if (slug) {
+          setText('slug-json', '"' + slug + '": "' + web + '",');
+          setText('slug-link', goBase + '?id=' + slug);
+          $('slug-block').classList.remove('hidden');
+        } else {
+          $('slug-block').classList.add('hidden');
+        }
+
+        $('result').classList.remove('hidden');
+        saveRecent({ link: slug ? goBase + '?id=' + slug : link, web: web, at: Date.now() });
+      }
+
+      $('form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        $('error').classList.add('hidden');
+        var slug = $('slug').value.trim().toLowerCase();
+        try {
+          if (slug && !/^[a-z0-9-]+$/.test(slug)) throw new Error('Short name can only use letters, numbers and dashes.');
+          render($('dest').value, slug);
+        } catch (err) {
+          $('result').classList.add('hidden');
+          setText('error', err.message);
+          $('error').classList.remove('hidden');
+        }
+      });
+
+      document.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-copy]');
+        if (!btn) return;
+        var text = $(btn.getAttribute('data-copy')).textContent;
+        var label = btn.textContent;
+        var done = function () { btn.textContent = 'Copied'; setTimeout(function () { btn.textContent = label; }, 1500); };
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text); done(); });
+        } else {
+          fallbackCopy(text); done();
+        }
+      });
+
+      function fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand('copy'); } catch (e) {}
+        ta.remove();
+      }
+
+      function loadRecent() {
+        try { return JSON.parse(localStorage.getItem(RECENT_KEY)) || []; } catch (e) { return []; }
+      }
+
+      function saveRecent(item) {
+        var list = loadRecent().filter(function (r) { return r.link !== item.link; });
+        list.unshift(item);
+        try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 10))); } catch (e) {}
+        renderRecent();
+      }
+
+      function renderRecent() {
+        var list = loadRecent();
+        $('recent-card').classList.toggle('hidden', !list.length);
+        $('recent').innerHTML = '';
+        list.forEach(function (r) {
+          var li = document.createElement('li');
+          var a = document.createElement('a');
+          a.href = r.link; a.textContent = r.link; a.target = '_blank'; a.rel = 'noopener';
+          var when = document.createElement('div');
+          when.className = 'when';
+          when.textContent = new Date(r.at).toLocaleString() + ' → ' + r.web;
+          li.appendChild(a); li.appendChild(when);
+          $('recent').appendChild(li);
+        });
+      }
+
+      renderRecent();
+    })();
+  </script>
+</body>
+</html>

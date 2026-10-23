@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer-when-downgrade">
+  <title>Opening Amazon…</title>
+  <style>
+    :root { --bg: #ffffff; --fg: #0f1111; --muted: #565959; --accent: #ffd814; --accent-border: #fcd200; --line: #d5d9d9; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #131921; --fg: #f3f3f3; --muted: #b7bcbf; --line: #3a4553; }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: var(--bg); color: var(--fg);
+      font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+    }
+    main { width: 100%; max-width: 360px; text-align: center; }
+    .spinner {
+      width: 36px; height: 36px; margin: 0 auto 20px; border-radius: 50%;
+      border: 3px solid var(--line); border-top-color: #ff9900; animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { font-size: 20px; margin: 0 0 8px; }
+    p { color: var(--muted); margin: 0 0 24px; font-size: 15px; }
+    .btn {
+      display: block; width: 100%; padding: 14px 16px; margin-bottom: 12px; border-radius: 999px;
+      font-size: 16px; font-weight: 600; text-decoration: none; color: #0f1111;
+      background: var(--accent); border: 1px solid var(--accent-border);
+    }
+    .link { display: inline-block; padding: 8px; color: var(--muted); font-size: 14px; }
+    .hidden { display: none; }
+    .done .spinner { display: none; }
+  </style>
+</head>
+<body>
+  <main id="app">
+    <div class="spinner" aria-hidden="true"></div>
+    <h1 id="title">Opening Amazon…</h1>
+    <p id="message">If the Amazon app is installed, tap <strong>Open</strong> when asked.</p>
+    <div id="actions" class="hidden">
+      <a id="app-btn" class="btn" href="#">Open in Amazon app</a>
+      <a id="web-btn" class="link" href="#">Continue in browser</a>
+    </div>
+    <noscript><p>Please enable JavaScript to continue to Amazon.</p></noscript>
+  </main>
+
+  <script src="../assets/deeplink.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var L = window.AmazonLink;
+      var $ = function (id) { return document.getElementById(id); };
+
+      // How long to wait for the app to open before falling back to the web.
+      var FALLBACK_MS = 2500;
+
+      function showError(text) {
+        document.body.classList.add('done');
+        $('title').textContent = 'Link not available';
+        $('message').textContent = text;
+      }
+
+      function showButtons(title, message) {
+        document.body.classList.add('done');
+        if (title) $('title').textContent = title;
+        if (message) $('message').textContent = message;
+        $('actions').classList.remove('hidden');
+      }
+
+      function resolveDestination() {
+        var params = new URLSearchParams(location.search);
+        if (params.get('l')) return Promise.resolve(L.decode(params.get('l')));
+        var id = params.get('id');
+        if (id) {
+          return fetch('../links.json', { cache: 'no-cache' })
+            .then(function (r) { if (!r.ok) throw new Error(); return r.json(); })
+            .then(function (links) {
+              if (!Object.prototype.hasOwnProperty.call(links, id)) throw new Error('This link no longer exists.');
+              return links[id];
+            }, function () { throw new Error('Could not load this link. Please try again.'); });
+        }
+        return Promise.reject(new Error('This link is missing its destination.'));
+      }
+
+      function go(dest) {
+        var url = L.parseAmazonUrl(dest);
+        var web = L.webUrl(url);
+        var platform = L.detectPlatform();
+
+        $('web-btn').href = web;
+
+        if (platform === 'desktop') {
+          location.replace(web);
+          return;
+        }
+
+        var appUrl = platform === 'ios' ? L.iosAppUrl(url) : L.androidIntentUrl(url);
+        $('app-btn').href = appUrl;
+
+        var leftPage = false;   // app opened, this page went to the background
+        var promptShown = false; // iOS "Open in Amazon?" alert took focus
+        var timer;
+
+        function fallbackToWeb() {
+          if (leftPage || document.hidden) return;
+          location.replace(web);
+        }
+
+        function onHidden() {
+          if (document.hidden) {
+            leftPage = true;
+            clearTimeout(timer);
+          } else if (leftPage) {
+            // Shopper came back from the Amazon app; don't bounce them again.
+            showButtons('Opened in Amazon', 'Didn’t open? Use the buttons below.');
+          }
+        }
+
+        document.addEventListener('visibilitychange', onHidden);
+        window.addEventListener('pagehide', function () { leftPage = true; clearTimeout(timer); });
+
+        if (platform === 'ios') {
+          // While the system prompt is up, wait for the shopper's choice instead
+          // of racing it with the web fallback.
+          window.addEventListener('blur', function () {
+            if (leftPage) return;
+            promptShown = true;
+            clearTimeout(timer);
+          });
+          window.addEventListener('focus', function () {
+            if (!promptShown || leftPage) return;
+            // Focus came back without the app opening: they tapped Cancel.
+            setTimeout(fallbackToWeb, 400);
+          });
+        }
+
+        timer = setTimeout(function () {
+          if (promptShown) return;
+          fallbackToWeb();
+        }, FALLBACK_MS);
+
+        // Reveal manual buttons shortly after, in case automatic opening is blocked.
+        setTimeout(function () { if (!leftPage) showButtons(); }, 1200);
+
+        location.href = appUrl;
+      }
+
+      Promise.resolve()
+        .then(resolveDestination)
+        .then(go)
+        .catch(function (e) { showError(e && e.message ? e.message : 'Something went wrong.'); });
+    })();
+  </script>
+</body>
+</html>
